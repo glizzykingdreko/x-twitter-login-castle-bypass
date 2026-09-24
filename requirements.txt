@@ -1,2 +1,3 @@
 requests==2.32.5
 python-dotenv==1.0.1
+twitter-generator==1.0.0
