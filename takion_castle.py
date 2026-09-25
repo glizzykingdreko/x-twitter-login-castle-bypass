@@ -57,11 +57,13 @@ class TakionCastle:
     def set_proxy(self, proxy: str) -> None:
         self.proxy = normalize_proxy(proxy) if proxy else False
 
-    def generate_token(self, website: str = "twitter", tries: int = 4) -> str:
+    def generate_token(self, website: str = "twitter", tries: int = 4, codec: str = None) -> str:
         params = {
             "website": website,
             "api_key": self.api_key,
         }
+        if codec:
+            params["codec"] = codec
         # Carry the __cuid the session already has so the token and the cookie describe the
         # same device. The first call has none yet, the service mints one and hands it back.
         if self.cuid:

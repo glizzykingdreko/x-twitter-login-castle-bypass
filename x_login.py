@@ -16,9 +16,8 @@ load_dotenv()
 # The public web app Bearer. It ships in x.com's own JS, it's not a secret and it's the same
 # for every session, the per-session auth is the guest token and the Castle token.
 WEB_BEARER = "Bearer AAAAAAAAAAAAAAAAAAAAANRILgAAAAAAnNwIzUejRCOuH5E6I8xnZz4puTs%3D1Zv7ttfk8LF81IUq16cHjhLTvJu4FA33AGWWjCpTnA"
-USER_AGENT = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36"
-# The onboarding lives under x.com/i/jfapi now. jf.x.com is the old host and is being retired.
-JFAPI = "https://x.com/i/jfapi/onboarding/web"
+USER_AGENT = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/153.0.0.0 Safari/537.36"
+JFAPI = "https://jf.x.com/onboarding/web"
 
 
 def require_env(name: str) -> str:
@@ -30,7 +29,7 @@ def require_env(name: str) -> str:
 
 def navigation_headers(accept_language: str) -> dict:
     return {
-        "sec-ch-ua": '"Chromium";v="152", "Not?A_Brand";v="24", "Google Chrome";v="152"',
+        "sec-ch-ua": '"Google Chrome";v="153", "Not_A Brand";v="8", "Chromium";v="153"',
         "sec-ch-ua-mobile": "?0",
         "sec-ch-ua-platform": '"macOS"',
         "upgrade-insecure-requests": "1",
@@ -53,7 +52,7 @@ def jf_headers(method: str, active_user: str, guest_token: str, transaction_id: 
         "sec-ch-ua-platform": '"macOS"',
         "accept-language": accept_language,
         "timezone": timezone,
-        "sec-ch-ua": '"Chromium";v="152", "Not?A_Brand";v="24", "Google Chrome";v="152"',
+        "sec-ch-ua": '"Google Chrome";v="153", "Not_A Brand";v="8", "Chromium";v="153"',
         "x-twitter-client-language": accept_language,
         "sec-ch-ua-mobile": "?0",
         "x-twitter-active-user": active_user,
@@ -67,10 +66,10 @@ def jf_headers(method: str, active_user: str, guest_token: str, transaction_id: 
     headers["accept"] = "*/*"
     if method.upper() == "POST":
         headers["origin"] = "https://x.com"
-    headers["sec-fetch-site"] = "same-origin"
+    headers["sec-fetch-site"] = "same-site"
     headers["sec-fetch-mode"] = "cors"
     headers["sec-fetch-dest"] = "empty"
-    headers["referer"] = "https://x.com/i/jf/onboarding/web?mode=login"
+    headers["referer"] = "https://x.com/"
     headers["accept-encoding"] = "gzip, deflate, br, zstd"
     headers["priority"] = "u=1, i"
     return headers
@@ -91,62 +90,83 @@ if __name__ == "__main__":
     password = args.password or require_env("TWITTER_PASSWORD")
     accept_language = args.lang
     timezone = args.timezone
-    proxy = choice([line for line in open("proxies.txt").read().splitlines() if line.strip()])
-    print(f"proxy: {proxy.split(':')[0]}...")
+    proxies = [line for line in open("proxies.txt").read().splitlines() if line.strip()]
+    print(f"proxy: {proxies[0].split(':')[0]}... ({len(proxies)} in pool)")
 
-    solver = TakionCastle(api_key, proxy, client_hello="chrome152")
+    solver = TakionCastle(api_key, choice(proxies), client_hello="chrome152")
     # Seed the session's __cuid before the first page load so every request, page and token
     # alike, carries the same device id. generate_token adopts whatever the service returns.
     solver.cuid = str(uuid.uuid4())
-    solver.cookiejar.set("__cuid", solver.cuid)
 
-    print("[1] Loading x.com/home...")
-    home_response = solver.get("https://x.com/home", headers=navigation_headers(accept_language))
-    guest_id = solver.cookiejar.get("guest_id")
-    if not guest_id:
-        print(f"[BLOCKED] no guest_id cookie, the session was refused before login [{home_response.status_code}]")
+    print("[1] Seeding transaction id from the x-web build...")
+    sign_o_url = "https://abs.twimg.com/x-web/x-web/assets/sign.o-NnfXKGyX.js"
+    index_pattern = r"\(\w\[\d{1,2}\],\s*16\)"
+    asset_headers = {
+        "user-agent": USER_AGENT,
+        "accept": "*/*",
+        "sec-fetch-site": "cross-site",
+        "sec-fetch-mode": "no-cors",
+        "sec-fetch-dest": "script",
+        "referer": "https://x.com/",
+        "accept-encoding": "gzip, deflate, br, zstd",
+        "accept-language": accept_language,
+    }
+    root_response = None
+    for _ in range(15):
+        solver.cookiejar.clear()
+        solver.cookiejar.set("__cuid", solver.cuid)
+        root_response = solver.get("https://x.com/", headers=navigation_headers(accept_language))
+        if "twitter-site-verification" in root_response.text:
+            break
+        solver.set_proxy(choice(proxies))
+    else:
+        print("[FAIL] x.com kept returning a page without the verification meta; rotate proxies")
         raise SystemExit(1)
-    gt_match = re.search(r"gt=(\d+)", home_response.text)
-    guest_token = gt_match.group(1) if gt_match else solver.cookiejar.get("gt")
+
+    sign_response = solver.get(sign_o_url, headers=asset_headers)
+    if not re.search(index_pattern, sign_response.text):
+        # sign.o rotated: the entry loader lists the current chunk hashes, one holds the indices.
+        entry_hash = re.search(r"entry-client-logged-out-([A-Za-z0-9_-]+)\.js", root_response.text).group(1)
+        entry = solver.get(f"https://abs.twimg.com/x-web/x-web/entry-client-logged-out-{entry_hash}.js", headers=asset_headers).text
+        sign_response = None
+        for name in re.findall(r"assets/([A-Za-z0-9_.]+-[A-Za-z0-9_-]{6,})\.js", entry):
+            candidate = solver.get(f"https://abs.twimg.com/x-web/x-web/assets/{name}.js", headers=asset_headers)
+            if re.search(index_pattern, candidate.text):
+                sign_response = candidate
+                break
+        if sign_response is None:
+            print("[FAIL] could not locate the sign.o key-byte chunk in the x-web build")
+            raise SystemExit(1)
+
+    # The x-web root no longer inlines gt=, so mint a guest token from the activate endpoint.
+    guest_token = solver.cookiejar.get("gt") or solver.post(
+        "https://api.x.com/1.1/guest/activate.json",
+        headers={"authorization": WEB_BEARER, "user-agent": USER_AGENT},
+    ).json().get("guest_token")
     if not guest_token:
-        print("[FAIL] could not read the guest token from x.com/home")
+        print("[FAIL] could not obtain a guest token")
         raise SystemExit(1)
     solver.cookiejar.set("gt", guest_token)
 
-    ondemand_index = re.search(r'(\d+):"ondemand\.s"', home_response.text).group(1)
-    ondemand_hash = re.findall(rf'{ondemand_index}:"([0-9a-f]+)"', home_response.text)[-1]
-    ondemand_response = solver.get(
-        f"https://abs.twimg.com/responsive-web/client-web/ondemand.s.{ondemand_hash}a.js",
-        headers={
-            "user-agent": USER_AGENT,
-            "accept": "*/*",
-            "sec-fetch-site": "cross-site",
-            "sec-fetch-mode": "no-cors",
-            "sec-fetch-dest": "script",
-            "referer": "https://x.com/",
-            "accept-encoding": "gzip, deflate, br, zstd",
-            "accept-language": accept_language,
-        },
-    )
     transaction_generator = ClientTransactionGenerator(
-        ondemand_file=ondemand_response.text,
-        home_page=home_response.text,
+        ondemand_file=sign_response.text,
+        home_page=root_response.text,
     )
-    print(f"    guest_id={guest_id} guest_token={guest_token}\n")
+    print(f"    guest_token={guest_token}\n")
 
     # [2] Warm the onboarding state the way the login page does before you type, a landing GET
     # and the passkey remote. Skipping these makes begin_login look out of order.
     print("[2] Warming onboarding state...")
     landing_response = solver.get(
         f"{JFAPI}/landing",
-        headers=jf_headers("GET", "no", guest_token, transaction_generator.generate("GET", "/i/jfapi/onboarding/web/landing"), accept_language, timezone),
+        headers=jf_headers("GET", "no", guest_token, transaction_generator.generate("GET", "/onboarding/web/landing"), accept_language, timezone),
     )
     if landing_response.status_code >= 400:
         print(f"[FAIL] onboarding/landing bad status: {landing_response.status_code}")
         raise SystemExit(1)
     passkey_response = solver.get(
         f"{JFAPI}/remotes/passkey_one_fa",
-        headers=jf_headers("GET", "no", guest_token, transaction_generator.generate("GET", "/i/jfapi/onboarding/web/remotes/passkey_one_fa"), accept_language, timezone),
+        headers=jf_headers("GET", "no", guest_token, transaction_generator.generate("GET", "/onboarding/web/remotes/passkey_one_fa"), accept_language, timezone),
         params={"form_id": "landing"},
     )
     if passkey_response.status_code >= 400:
@@ -154,15 +174,15 @@ if __name__ == "__main__":
         raise SystemExit(1)
     print(f"    landing={landing_response.status_code} passkey={passkey_response.status_code}\n")
 
-    # [3] begin_login. First Castle-gated call, the e8bl5yQW token rides in the body as
+    # [3] begin_login. First Castle-gated call, the uq1seNrd token rides in the body as
     # $castle_token. A good answer carries a session_token and points at the next subtask.
     print(f"[3] begin_login for {username}...")
     begin_response = solver.post(
         f"{JFAPI}/actions/begin_login",
-        headers=jf_headers("POST", "yes", guest_token, transaction_generator.generate("POST", "/i/jfapi/onboarding/web/actions/begin_login"), accept_language, timezone),
+        headers=jf_headers("POST", "yes", guest_token, transaction_generator.generate("POST", "/onboarding/web/actions/begin_login"), accept_language, timezone),
         data=urlencode({
             "username_or_email": username,
-            "$castle_token": solver.generate_token("twitter"),
+            "$castle_token": solver.generate_token("twitter", codec="uq1"),
         }),
     )
     if begin_response.status_code != 200:
@@ -186,12 +206,12 @@ if __name__ == "__main__":
     print("[4] login_enter_password...")
     password_response = solver.post(
         f"{JFAPI}/actions/login_enter_password",
-        headers=jf_headers("POST", "yes", guest_token, transaction_generator.generate("POST", "/i/jfapi/onboarding/web/actions/login_enter_password"), accept_language, timezone),
+        headers=jf_headers("POST", "yes", guest_token, transaction_generator.generate("POST", "/onboarding/web/actions/login_enter_password"), accept_language, timezone),
         data=urlencode({
             "username": username,
             "password": password,
             "session_token": session_token,
-            "$castle_token": solver.generate_token("twitter"),
+            "$castle_token": solver.generate_token("twitter", codec="uq1"),
         }),
     )
     if password_response.status_code != 200:
