@@ -16,7 +16,9 @@ load_dotenv()
 # The public web app Bearer. It ships in x.com's own JS, it's not a secret and it's the same
 # for every session, the per-session auth is the guest token and the Castle token.
 WEB_BEARER = "Bearer AAAAAAAAAAAAAAAAAAAAANRILgAAAAAAnNwIzUejRCOuH5E6I8xnZz4puTs%3D1Zv7ttfk8LF81IUq16cHjhLTvJu4FA33AGWWjCpTnA"
-USER_AGENT = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/153.0.0.0 Safari/537.36"
+# u can use older chrome version, makes no difference.
+USER_AGENT = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/157.0.0.0 Safari/537.36"
+SEC_CH_UA = '"Google Chrome";v="157", "Not_A Brand";v="8", "Chromium";v="157"'
 JFAPI = "https://jf.x.com/onboarding/web"
 
 
@@ -29,7 +31,7 @@ def require_env(name: str) -> str:
 
 def navigation_headers(accept_language: str) -> dict:
     return {
-        "sec-ch-ua": '"Google Chrome";v="153", "Not_A Brand";v="8", "Chromium";v="153"',
+        "sec-ch-ua": SEC_CH_UA,
         "sec-ch-ua-mobile": "?0",
         "sec-ch-ua-platform": '"macOS"',
         "upgrade-insecure-requests": "1",
@@ -52,7 +54,7 @@ def jf_headers(method: str, active_user: str, guest_token: str, transaction_id: 
         "sec-ch-ua-platform": '"macOS"',
         "accept-language": accept_language,
         "timezone": timezone,
-        "sec-ch-ua": '"Google Chrome";v="153", "Not_A Brand";v="8", "Chromium";v="153"',
+        "sec-ch-ua": SEC_CH_UA,
         "x-twitter-client-language": accept_language,
         "sec-ch-ua-mobile": "?0",
         "x-twitter-active-user": active_user,
@@ -75,6 +77,23 @@ def jf_headers(method: str, active_user: str, guest_token: str, transaction_id: 
     return headers
 
 
+def exit_ip_geo(solver_session):
+    try:
+        d = solver_session.get("http://ip-api.com/json/?fields=status,query,countryCode,timezone").json()
+        if d.get("status") == "success" and d.get("query"):
+            return d["query"], (d.get("countryCode") or "").lower() or None, d.get("timezone")
+    except Exception:
+        pass
+    for url in ("https://api.ipify.org", "https://checkip.amazonaws.com"):
+        try:
+            text = (solver_session.get(url).text or "").strip()
+            if re.fullmatch(r"(\d{1,3}\.){3}\d{1,3}", text):
+                return text, None, None
+        except Exception:
+            continue
+    return "", None, None
+
+
 if __name__ == "__main__":
     if not os.path.exists("proxies.txt"):
         raise Exception("Create and fill proxies.txt with one proxy per line in format:\nip:port\nor\nip:port:user:pass")
@@ -82,7 +101,8 @@ if __name__ == "__main__":
     parser.add_argument("--username", "--email", dest="username")
     parser.add_argument("--password")
     parser.add_argument("--lang", default="en-GB")
-    parser.add_argument("--timezone", default="Europe/Rome")
+    parser.add_argument("--timezone", default=None, help="request timezone; loaded from the proxy exit IP if omitted")
+    parser.add_argument("--country", default=None, help="token timezone/locale; loaded from the proxy exit IP if omitted")
     args = parser.parse_args()
 
     api_key = require_env("TAKION_API_KEY")
@@ -90,10 +110,11 @@ if __name__ == "__main__":
     password = args.password or require_env("TWITTER_PASSWORD")
     accept_language = args.lang
     timezone = args.timezone
+    country = args.country
     proxies = [line for line in open("proxies.txt").read().splitlines() if line.strip()]
     print(f"proxy: {proxies[0].split(':')[0]}... ({len(proxies)} in pool)")
 
-    solver = TakionCastle(api_key, choice(proxies), client_hello="chrome152")
+    solver = TakionCastle(api_key, choice(proxies), client_hello="chrome156")
     # Seed the session's __cuid before the first page load so every request, page and token
     # alike, carries the same device id. generate_token adopts whatever the service returns.
     solver.cuid = str(uuid.uuid4())
@@ -148,6 +169,12 @@ if __name__ == "__main__":
         raise SystemExit(1)
     solver.cookiejar.set("gt", guest_token)
 
+    # u want the token to match the proxy details
+    exit_ip, geo_country, geo_tz = exit_ip_geo(solver)
+    country = country or geo_country or "it"
+    timezone = timezone or geo_tz or "Europe/Rome"
+    print(f"    exit_ip={exit_ip or 'unknown'} country={country} timezone={timezone}")
+
     transaction_generator = ClientTransactionGenerator(
         ondemand_file=sign_response.text,
         home_page=root_response.text,
@@ -174,7 +201,7 @@ if __name__ == "__main__":
         raise SystemExit(1)
     print(f"    landing={landing_response.status_code} passkey={passkey_response.status_code}\n")
 
-    # [3] begin_login. First Castle-gated call, the uq1seNrd token rides in the body as
+    # [3] begin_login. First Castle-gated call, the WcmFKZlD token rides in the body as
     # $castle_token. A good answer carries a session_token and points at the next subtask.
     print(f"[3] begin_login for {username}...")
     begin_response = solver.post(
@@ -182,7 +209,7 @@ if __name__ == "__main__":
         headers=jf_headers("POST", "yes", guest_token, transaction_generator.generate("POST", "/onboarding/web/actions/begin_login"), accept_language, timezone),
         data=urlencode({
             "username_or_email": username,
-            "$castle_token": solver.generate_token("twitter", codec="uq1"),
+            "$castle_token": solver.generate_token("twitter", codec="WcmFKZlD", stage="begin_login", ip=exit_ip, country=country, ua=USER_AGENT, build="156"),
         }),
     )
     if begin_response.status_code != 200:
@@ -211,7 +238,7 @@ if __name__ == "__main__":
             "username": username,
             "password": password,
             "session_token": session_token,
-            "$castle_token": solver.generate_token("twitter", codec="uq1"),
+            "$castle_token": solver.generate_token("twitter", codec="WcmFKZlD", stage="login_enter_password", ip=exit_ip, country=country, ua=USER_AGENT, build="156"),
         }),
     )
     if password_response.status_code != 200:

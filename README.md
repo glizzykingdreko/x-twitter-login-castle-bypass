@@ -1,4 +1,4 @@
-# X (Twitter) Login Castle Bypass
+# X (Twitter) Login and Sign Up Castle Bypass
 <div align="center">
   <img src="https://img.shields.io/badge/Status-Active-brightgreen?style=flat-square" alt="Status: Active">
   <img src="https://img.shields.io/badge/Type-Reverse%20Engineering-blue?style=flat-square" alt="Type: Reverse Engineering">
@@ -13,7 +13,7 @@
   <br />
 </div>
 
-Log into an X / Twitter account through the new JetFuel onboarding flow on `jf.x.com`, bypassing **Castle**. The antibot part is handled by [TakionAPI](https://takionapi.tech).
+Sign up or login into an X / Twitter account through the new JetFuel onboarding flow on `jf.x.com`, bypassing **Castle**. The antibot part is handled by [TakionAPI](https://takionapi.tech).
 
 This is the working code behind my login flow reconstruction series, [Episode 1, Headers generation](https://takionapi.tech/blog/x-former-twitter-login-flow-reconstruction-episode-1-headers-generation) and [Episode 2, UI Metrics](https://takionapi.tech/blog/x-former-twitter-login-flow-reconstruction-episode-2-ui-metrics).
 
@@ -31,6 +31,7 @@ Check as well the [RockstarGames Castle bypass](https://github.com/glizzykingdre
   - [The Guest Token](#the-guest-token)
   - [Headers](#headers)
   - [Login Flow](#login-flow)
+  - [Sign up Flow](#sign-up-flow)
   - [JetFuel Responses](#jetfuel-responses)
   - [X-Client-Transaction-Id and ui_metrics](#x-client-transaction-id-and-ui_metrics)
   - [What Comes After the Password](#what-comes-after-the-password)
@@ -144,6 +145,22 @@ homepage (guest token) -> onboarding warmup -> begin_login ($castle_token) -> lo
 
 `begin_login` takes the username and the first Castle token and answers with a `session_token`. `login_enter_password` takes the password, that `session_token` and a fresh Castle token, and on a clean pass X drops the `auth_token` cookie, which is the logged-in session. A wrong password comes back with an error string and no `auth_token`, which means the bypass worked and the account just didn't match. See [`x_login.py`](./x_login.py).
 
+### Sign up Flow
+
+The account creation runs the same warmup and we hand off right after the Castle gate:
+
+```
+homepage (guest token) -> onboarding warmup -> begin_login (email + $castle_token)
+```
+
+`begin_login` takes the email and the Castle token and answers with a `session_token` plus a `next_action` of `/onboarding/web/actions/finish_login_email_verification`. 
+
+The token passed, the Castle part is handled, and everything after it, the emailed code and whatever X asks next, is on you. A `session_token` in the response means it worked, no `session_token` means X didn't accept that attempt (`temporarily limited`, a dead proxy, a generic `Something went wrong`). See [`x_sign_up.py`](./x_sign_up.py).
+
+In some case, based on the proxy and mail "score" (catchalls and non-fresh mails are more likely to get it), you'll get asked for a `/onboarding/web/actions/finish_knowledge_check` / `/onboarding/web/actions/finish_verification` / other variants , so an KYC via a selfie.
+
+Make please sure to use quality proxies and real mails, from real trsted providers such as gmail.
+
 ### JetFuel Responses
 
 Here's the X-specific twist. The `jf.x.com/onboarding/web` endpoints don't answer JSON, they answer **JetFuel**, a binary stream of length-prefixed frames carrying varint-length key/value pairs. There's no schema in the response, so [`jetfuel.py`](./jetfuel.py) doesn't decode the whole thing, it scans the bytes for the handful of keys the flow needs (`session_token`, `errors`, `missing_account`) and reads the value that follows each one, plus the `/onboarding/web/actions/...` path that names the next subtask.
@@ -236,6 +253,22 @@ That's Castle refusing the session, not a bad password. The IP is flagged. Rotat
 > The password is accepted but I never get an auth_token.
 
 The account has another subtask (2FA, an ACID check, a captcha). Read [What Comes After the Password](#what-comes-after-the-password), the `next_action` in the JetFuel response tells you which one, and you answer it on the same session with a fresh Castle token.
+
+> Does x_sign_up create a new account or log in?
+
+It logs in with an email. `x_sign_up.py` mints the castle `begin_login` token and gets you a `session_token` with a next_action. The Castle gate is the part we solve, the emailed code and whatever X asks after it is on you. See [Sign up Flow](#sign-up-flow).
+
+> x_sign_up stops right after begin_login, where's the rest of the flow?
+
+That's where Castle ends and your flow begins. A `session_token` in the response means the token passed, the emailed verification and any step after it run on the same session, you implement them.
+
+> Do I have to set X_COUNTRY and X_TIMEZONE for x_sign_up?
+
+No. x_sign_up reads the proxy's exit IP and fills the country and timezone from it, so the token's geo matches the connection. Set them only to override the lookup.
+
+> x_sign_up prints "Something went wrong" and no session_token.
+
+X rejected that attempt, please try again using a different proxy / mail and [contact us](https://takionapi.tech/contact) in case of any problem.
 
 > Do I need the x-client-transaction-id or ui_metrics from the blog posts?
 

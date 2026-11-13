@@ -57,13 +57,25 @@ class TakionCastle:
     def set_proxy(self, proxy: str) -> None:
         self.proxy = normalize_proxy(proxy) if proxy else False
 
-    def generate_token(self, website: str = "twitter", tries: int = 4, codec: str = None) -> str:
+    def generate_token(self, website: str = "twitter", tries: int = 4, codec: str = None,
+                       stage: str = None, ip: str = None, country: str = None,
+                       ua: str = None, build: str = None) -> str:
         params = {
             "website": website,
             "api_key": self.api_key,
         }
         if codec:
             params["codec"] = codec
+        if stage:
+            params["stage"] = stage # which onboarding step the token is for (WcmFKZlD), we set the codec for you
+        if ip:
+            params["ip"] = ip # your proxy's public exit IP
+        if country:
+            params["country"] = country # your proxy's exit country
+        if ua:
+            params["ua"] = ua # your user agent
+        if build:
+            params["build"] = build
         # Carry the __cuid the session already has so the token and the cookie describe the
         # same device. The first call has none yet, the service mints one and hands it back.
         if self.cuid:
