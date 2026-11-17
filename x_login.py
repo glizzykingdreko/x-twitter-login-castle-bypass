@@ -8,7 +8,7 @@ from random import choice
 from dotenv import load_dotenv
 
 import jetfuel
-from takion_castle import TakionCastle
+from takion_castle import TakionCastle, browser_languages
 from twitter_generator import ClientTransactionGenerator
 
 load_dotenv()
@@ -114,7 +114,7 @@ if __name__ == "__main__":
     proxies = [line for line in open("proxies.txt").read().splitlines() if line.strip()]
     print(f"proxy: {proxies[0].split(':')[0]}... ({len(proxies)} in pool)")
 
-    solver = TakionCastle(api_key, choice(proxies), client_hello="chrome156")
+    solver = TakionCastle(api_key, choice(proxies), client_hello="chrome157")
     # Seed the session's __cuid before the first page load so every request, page and token
     # alike, carries the same device id. generate_token adopts whatever the service returns.
     solver.cuid = str(uuid.uuid4())
@@ -174,6 +174,7 @@ if __name__ == "__main__":
     country = country or geo_country or "it"
     timezone = timezone or geo_tz or "Europe/Rome"
     print(f"    exit_ip={exit_ip or 'unknown'} country={country} timezone={timezone}")
+    language, languages = browser_languages(accept_language)
 
     transaction_generator = ClientTransactionGenerator(
         ondemand_file=sign_response.text,
@@ -209,7 +210,7 @@ if __name__ == "__main__":
         headers=jf_headers("POST", "yes", guest_token, transaction_generator.generate("POST", "/onboarding/web/actions/begin_login"), accept_language, timezone),
         data=urlencode({
             "username_or_email": username,
-            "$castle_token": solver.generate_token("twitter", codec="WcmFKZlD", stage="begin_login", ip=exit_ip, country=country, ua=USER_AGENT, build="156"),
+            "$castle_token": solver.generate_token("twitter", codec="WcmFKZlD", stage="begin_login", ip=exit_ip, country=country, timezone=timezone, ua=USER_AGENT, language=language, languages=languages),
         }),
     )
     if begin_response.status_code != 200:
@@ -238,7 +239,7 @@ if __name__ == "__main__":
             "username": username,
             "password": password,
             "session_token": session_token,
-            "$castle_token": solver.generate_token("twitter", codec="WcmFKZlD", stage="login_enter_password", ip=exit_ip, country=country, ua=USER_AGENT, build="156"),
+            "$castle_token": solver.generate_token("twitter", codec="WcmFKZlD", stage="login_enter_password", ip=exit_ip, country=country, timezone=timezone, ua=USER_AGENT, language=language, languages=languages),
         }),
     )
     if password_response.status_code != 200:

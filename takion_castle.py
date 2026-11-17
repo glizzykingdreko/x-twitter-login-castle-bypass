@@ -43,6 +43,14 @@ def normalize_proxy(proxy: str) -> str:
     return value
 
 
+
+def browser_languages(accept_language: str) -> tuple:
+    """Turn 'en-gb' into navigator.language 'en-GB' and navigator.languages 'en-GB,en'."""
+    parts = accept_language.split(",")[0].split(";")[0].strip().replace("_", "-").split("-")
+    language = parts[0].lower() + (f"-{parts[1].upper()}" if len(parts) > 1 else "")
+    return language, (f"{language},{parts[0].lower()}" if len(parts) > 1 else language)
+
+
 class TakionCastle:
     # One instance is one browser session. The __cuid cookie, the cookie jar, the TLS
     # fingerprint and the proxy stay pinned together, Castle scores the session and not the
@@ -59,7 +67,8 @@ class TakionCastle:
 
     def generate_token(self, website: str = "twitter", tries: int = 4, codec: str = None,
                        stage: str = None, ip: str = None, country: str = None,
-                       ua: str = None, build: str = None) -> str:
+                       ua: str = None, build: str = None, timezone: str = None,
+                       language: str = None, languages: str = None) -> str:
         params = {
             "website": website,
             "api_key": self.api_key,
@@ -72,8 +81,14 @@ class TakionCastle:
             params["ip"] = ip # your proxy's public exit IP
         if country:
             params["country"] = country # your proxy's exit country
+        if timezone:
+            params["timezone"] = timezone # your proxy's exit IANA timezone, must match the exit IP
+        if language:
+            params["language"] = language # navigator.language of the browser you imitate, e.g. en-GB
+        if languages:
+            params["languages"] = languages # navigator.languages, comma separated, e.g. en-GB,en
         if ua:
-            params["ua"] = ua # your user agent
+            params["ua"] = ua # your user agent, the token is minted for its Chrome version
         if build:
             params["build"] = build
         # Carry the __cuid the session already has so the token and the cookie describe the
@@ -96,6 +111,10 @@ class TakionCastle:
                 self.cuid = cuid
                 self.cookiejar.set("__cuid", cuid)
                 params["__cuid"] = cuid
+            # The service adds a note when an optional parameter is missing or was not
+            # recognised and it had to fall back. The token still works, the note says what to fix.
+            if note := data.get("note"):
+                print(f"    [takion] note: {note}")
             token = data.get("token")
             if token:
                 return token

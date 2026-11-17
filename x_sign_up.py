@@ -10,7 +10,7 @@ from urllib.parse import urlencode
 from dotenv import load_dotenv
 
 import jetfuel
-from takion_castle import TakionCastle
+from takion_castle import TakionCastle, browser_languages
 from twitter_generator import ClientTransactionGenerator
 
 load_dotenv()
@@ -119,7 +119,7 @@ if __name__ == "__main__":
     print(f"proxies: {len(proxies)} in pool")
 
     proxy = choice(proxies)
-    solver = TakionCastle(api_key, proxy, client_hello="chrome156")
+    solver = TakionCastle(api_key, proxy, client_hello="chrome157")
     solver.cuid = str(uuid7())
 
     print("[1] Loading x.com and minting the guest token...")
@@ -190,6 +190,7 @@ if __name__ == "__main__":
     country = country or geo_country or "it"
     timezone = timezone or geo_tz or "Europe/Paris"
     print(f"    exit_ip={exit_ip or 'unknown'} country={country} timezone={timezone}")
+    language, languages = browser_languages(accept_language)
 
     transaction_generator = ClientTransactionGenerator(
         ondemand_file=sign_response.text,
@@ -219,7 +220,7 @@ if __name__ == "__main__":
 
     print(f"[3] begin_login for {email}...")
     castle_token = solver.generate_token("twitter", codec="WcmFKZlD", stage="begin_login",
-                                         ip=exit_ip, country=country, ua=USER_AGENT, build="156")
+                                         ip=exit_ip, country=country, timezone=timezone, ua=USER_AGENT, language=language, languages=languages)
     # generate_token already synced solver.cuid + the __cuid cookie from the served value
     print(f"    exit_ip={exit_ip or 'unknown'} castle_token={castle_token[:40]}...")
     begin_response = solver.post(
