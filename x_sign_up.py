@@ -219,7 +219,7 @@ if __name__ == "__main__":
     print()
 
     print(f"[3] begin_login for {email}...")
-    castle_token = solver.generate_token("twitter", codec="WcmFKZlD", stage="begin_login",
+    castle_token = solver.generate_token("twitter", codec="nYgMx28z", stage="begin_login",
                                          ip=exit_ip, country=country, timezone=timezone, ua=USER_AGENT, language=language, languages=languages)
     # generate_token already synced solver.cuid + the __cuid cookie from the served value
     print(f"    exit_ip={exit_ip or 'unknown'} castle_token={castle_token[:40]}...")

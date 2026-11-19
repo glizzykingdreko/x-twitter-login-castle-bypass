@@ -59,6 +59,35 @@ def _has_alnum(value: str) -> bool:
     return any(char.isalnum() for char in value)
 
 
+def _is_text(value: str) -> bool:
+    # A message for a person: printable all the way through and long enough to say something.
+    # "message" and "errors" are also field names inside the form the response describes, where
+    # the bytes that follow are layout references ("Y\x00\x08\x07"), not text.
+    # A sentence has a space in it; an identifier such as "__$anyFieldErrors" does not.
+    return len(value.strip()) >= 6 and " " in value.strip() and value.isprintable() and any(char.isalpha() for char in value)
+
+
+def _extract_text_after_key(buf: bytes, key: str):
+    # Same scan as _extract_value_after_key, but over every place the key appears, keeping the
+    # first value that reads as text.
+    key_bytes = key.encode("utf-8")
+    anchor = bytes([len(key_bytes)]) + key_bytes
+    start = 0
+    while True:
+        idx = buf.find(anchor, start)
+        if idx == -1:
+            return None
+        length, npos = _read_varint(buf, idx + len(anchor))
+        if length is not None and 0 < length <= len(buf) - npos:
+            try:
+                value = buf[npos:npos + length].decode("utf-8")
+            except UnicodeDecodeError:
+                value = None
+            if value and _is_text(value):
+                return value
+        start = idx + 1
+
+
 def _find_next_action(buf: bytes):
     needle = b"/onboarding/web/actions/"
     found = []
@@ -92,8 +121,8 @@ def parse_response(body):
     if session:
         result["session_token"] = session
 
-    errors = _extract_value_after_key(body, "errors")
-    message = _extract_value_after_key(body, "message")
+    errors = _extract_text_after_key(body, "errors")
+    message = _extract_text_after_key(body, "message")
     missing = _extract_value_after_key(body, "missing_account")
     # A missing account isn't returned as an error string, it's a separate key, so surface it
     # as one instead of letting begin_login look like it silently gave nothing back.

@@ -61,6 +61,10 @@ class TakionCastle:
         self.client_hello = client_hello
         self.cookiejar = RequestsCookieJar()
         self.cuid = None
+        # What the last token call answered: the Castle build it was minted for, and the page
+        # session. The session is sent back on the next step so both tokens describe one page load.
+        self.codec = None
+        self.session = None
 
     def set_proxy(self, proxy: str) -> None:
         self.proxy = normalize_proxy(proxy) if proxy else False
@@ -76,7 +80,9 @@ class TakionCastle:
         if codec:
             params["codec"] = codec
         if stage:
-            params["stage"] = stage # which onboarding step the token is for (WcmFKZlD), we set the codec for you
+            params["stage"] = stage # which onboarding step the token is for
+        if self.session and stage and stage != "begin_login":
+            params["session"] = self.session # the page the begin_login token was minted for
         if ip:
             params["ip"] = ip # your proxy's public exit IP
         if country:
@@ -117,6 +123,8 @@ class TakionCastle:
                 print(f"    [takion] note: {note}")
             token = data.get("token")
             if token:
+                self.codec = data.get("codec") or token.split("|", 1)[0]
+                self.session = data.get("session") or self.session
                 return token
             last_error = data.get("error") or f"empty token [{response.status_code}]"
         raise RuntimeError(f"/generate failed: {last_error}")

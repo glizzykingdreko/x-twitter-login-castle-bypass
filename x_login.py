@@ -210,7 +210,7 @@ if __name__ == "__main__":
         headers=jf_headers("POST", "yes", guest_token, transaction_generator.generate("POST", "/onboarding/web/actions/begin_login"), accept_language, timezone),
         data=urlencode({
             "username_or_email": username,
-            "$castle_token": solver.generate_token("twitter", codec="WcmFKZlD", stage="begin_login", ip=exit_ip, country=country, timezone=timezone, ua=USER_AGENT, language=language, languages=languages),
+            "$castle_token": solver.generate_token("twitter", codec="nYgMx28z", stage="begin_login", ip=exit_ip, country=country, timezone=timezone, ua=USER_AGENT, language=language, languages=languages),
         }),
     )
     if begin_response.status_code != 200:
@@ -239,7 +239,7 @@ if __name__ == "__main__":
             "username": username,
             "password": password,
             "session_token": session_token,
-            "$castle_token": solver.generate_token("twitter", codec="WcmFKZlD", stage="login_enter_password", ip=exit_ip, country=country, timezone=timezone, ua=USER_AGENT, language=language, languages=languages),
+            "$castle_token": solver.generate_token("twitter", codec="nYgMx28z", stage="login_enter_password", ip=exit_ip, country=country, timezone=timezone, ua=USER_AGENT, language=language, languages=languages),
         }),
     )
     if password_response.status_code != 200:
