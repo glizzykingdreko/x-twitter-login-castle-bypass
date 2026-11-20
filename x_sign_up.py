@@ -222,7 +222,8 @@ if __name__ == "__main__":
     # You can actually pass just "latest" to the codec or nothing / false, you fall back automatically
     # to the latest live one, we keep it updated on our side. 
     castle_token = solver.generate_token("twitter", codec="EZK-f_Qb", stage="begin_login",
-                                         ip=exit_ip, country=country, timezone=timezone, ua=USER_AGENT, language=language, languages=languages)
+                                         ip=exit_ip, country=country, timezone=timezone, ua=USER_AGENT, language=language, languages=languages,
+                                         username_len=len(email), identifier="email")
     # generate_token already synced solver.cuid + the __cuid cookie from the served value
     print(f"    exit_ip={exit_ip or 'unknown'} castle_token={castle_token[:40]}...")
     begin_response = solver.post(
@@ -249,5 +250,44 @@ if __name__ == "__main__":
         raise SystemExit(1)
     print(f"    session_token={session_token}")
     print(f"    next_action={begin['next_action']}")
+    print()
+
+    # [4] finish_login_email_verification. X mails a code to the address and the form asks for it, another
+    # Castle token is needed. Pass the same username_len / identifier for continuity
+    next_step = (begin["next_action"] or "").rsplit("/", 1)[-1]
+    if next_step != "finish_login_email_verification":
+        print(f"    next step is {next_step or 'none'}, not the email code, the rest of the flow is on you")
+        raise SystemExit(0)
+    print(f"[4] finish_login_email_verification, X mailed a code to {email}")
+    code = input("    verification code: ").strip().replace(" ", "")
+    # Mint right after the code is typed: the token states when the page submitted it.
+    code_token = solver.generate_token("twitter", codec="EZK-f_Qb", stage="finish_login_email_verification",
+                                       ip=exit_ip, country=country, timezone=timezone, ua=USER_AGENT, language=language, languages=languages,
+                                       username_len=len(email), identifier="email")
+    code_response = solver.post(
+        f"{JFAPI}/actions/finish_login_email_verification",
+        headers=jf_headers("POST", guest_token, transaction_generator.generate("POST", "/onboarding/web/actions/finish_login_email_verification"), accept_language, timezone),
+        data=urlencode({
+            "session_token": session_token,
+            "$castle_token": code_token,
+            "code": code,
+            "destination": email,
+        }),
+    )
+    if code_response.status_code != 200:
+        print(f"[FAIL] finish_login_email_verification refused [{code_response.status_code}], rotate the proxy")
+        raise SystemExit(1)
+    verify = jetfuel.parse_response(code_response.content)
+    error = verify["error_message"] or ""
+    if error:
+        # A wrong or expired code is answered with a message about the code: the token itself was accepted.
+        print(f"[FAIL] code not accepted: {error}")
+        raise SystemExit(1)
+    print(f"[PASS] code accepted")
+    print(f"    next_action={verify['next_action']}")
+    auth_token = solver.cookiejar.get("auth_token")
+    if auth_token:
+        print(f"    auth_token={auth_token}")
+        print(f"    session cookies: {', '.join(cookie.name for cookie in solver.cookiejar)}")
 
     # Rest of the flow is on you, castle part has been handled.

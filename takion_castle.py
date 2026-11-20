@@ -72,7 +72,8 @@ class TakionCastle:
     def generate_token(self, website: str = "twitter", tries: int = 4, codec: str = None,
                        stage: str = None, ip: str = None, country: str = None,
                        ua: str = None, build: str = None, timezone: str = None,
-                       language: str = None, languages: str = None) -> str:
+                       language: str = None, languages: str = None, username_len: int = None,
+                       identifier: str = None, keyboard: str = None) -> str:
         params = {
             "website": website,
             "api_key": self.api_key,
@@ -97,6 +98,12 @@ class TakionCastle:
             params["ua"] = ua # your user agent, the token is minted for its Chrome version
         if build:
             params["build"] = build
+        if username_len:
+            params["username_len"] = username_len # how many characters the identifier you submit has (optional)
+        if identifier:
+            params["identifier"] = identifier # what you type as the identifier: handle, email or phone (optional)
+        if keyboard:
+            params["keyboard"] = keyboard # us, it, de, fr or es; by default the layout of `country`
         # Carry the __cuid the session already has so the token and the cookie describe the
         # same device. The first call has none yet, the service mints one and hands it back.
         if self.cuid:
